@@ -51,6 +51,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     }
   }
 
+  @doc """
+  Executes one supported client-side tool call and returns an app-server tool payload.
+  """
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
     case tool do
@@ -70,6 +73,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     end
   end
 
+  @doc """
+  Returns tool definitions advertised to Codex app-server sessions.
+  """
   @spec tool_specs() :: [map()]
   def tool_specs do
     [

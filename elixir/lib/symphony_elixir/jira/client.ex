@@ -11,6 +11,9 @@ defmodule SymphonyElixir.Jira.Client do
   @fields "summary,description,status,assignee,labels,priority,created,updated,issuelinks"
   @max_error_body_log_bytes 1_000
 
+  @doc """
+  Fetches Jira board issues that are currently eligible for orchestration.
+  """
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
     tracker = Config.settings!().tracker
@@ -22,6 +25,9 @@ defmodule SymphonyElixir.Jira.Client do
     end
   end
 
+  @doc """
+  Fetches Jira issues whose status is one of the provided state names.
+  """
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names) when is_list(state_names) do
     normalized_states = Enum.map(state_names, &to_string/1) |> Enum.uniq()
@@ -38,6 +44,9 @@ defmodule SymphonyElixir.Jira.Client do
     end
   end
 
+  @doc """
+  Fetches current Jira issue state snapshots for the provided issue keys.
+  """
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) when is_list(issue_ids) do
     keys = issue_ids |> Enum.map(&to_string/1) |> Enum.uniq()
@@ -60,6 +69,9 @@ defmodule SymphonyElixir.Jira.Client do
     end
   end
 
+  @doc """
+  Creates a plain-text Jira comment on an issue.
+  """
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_key, body) when is_binary(issue_key) and is_binary(body) do
     case post("/rest/api/3/issue/#{URI.encode(issue_key)}/comment", %{body: jira_doc(body)}) do
@@ -68,6 +80,9 @@ defmodule SymphonyElixir.Jira.Client do
     end
   end
 
+  @doc """
+  Transitions a Jira issue to the named status when Jira exposes a matching transition.
+  """
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_key, state_name) when is_binary(issue_key) and is_binary(state_name) do
     with {:ok, transition_id} <- resolve_transition_id(issue_key, state_name),
@@ -79,6 +94,9 @@ defmodule SymphonyElixir.Jira.Client do
     end
   end
 
+  @doc """
+  Executes an authenticated Jira REST request using the configured Jira credentials.
+  """
   @spec request(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def request(method, path, opts \\ []) when is_binary(method) and is_binary(path) and is_list(opts) do
     tracker = Config.settings!().tracker
