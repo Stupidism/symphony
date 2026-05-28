@@ -84,6 +84,7 @@ defmodule SymphonyElixir.Jira.Client do
     tracker = Config.settings!().tracker
 
     with :ok <- validate_auth_config(tracker),
+         {:ok, method} <- normalize_method(method),
          {:ok, headers} <- auth_headers(tracker) do
       url = build_url(tracker.url, path)
       request_opts = [headers: headers, connect_options: [timeout: 30_000]] |> Keyword.merge(opts)
@@ -128,6 +129,17 @@ defmodule SymphonyElixir.Jira.Client do
 
   defp get(path, opts), do: request("get", path, opts)
   defp post(path, json), do: request("post", path, json: json)
+
+  defp normalize_method(method) do
+    case String.downcase(method) do
+      "get" -> {:ok, :get}
+      "post" -> {:ok, :post}
+      "put" -> {:ok, :put}
+      "patch" -> {:ok, :patch}
+      "delete" -> {:ok, :delete}
+      _ -> {:error, :invalid_jira_method}
+    end
+  end
 
   defp resolve_transition_id(issue_key, state_name) do
     with {:ok, body} <- get("/rest/api/3/issue/#{URI.encode(issue_key)}/transitions", []),
