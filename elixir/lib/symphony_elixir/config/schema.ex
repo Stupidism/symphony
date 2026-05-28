@@ -48,7 +48,13 @@ defmodule SymphonyElixir.Config.Schema do
       field(:kind, :string)
       field(:endpoint, :string, default: "https://api.linear.app/graphql")
       field(:api_key, :string)
+      field(:env_file, :string)
+      field(:url, :string)
+      field(:username, :string)
+      field(:api_token, :string)
       field(:project_slug, :string)
+      field(:project_key, :string)
+      field(:board_id, :string)
       field(:assignee, :string)
       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
@@ -59,7 +65,21 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
+        [
+          :kind,
+          :endpoint,
+          :api_key,
+          :env_file,
+          :url,
+          :username,
+          :api_token,
+          :project_slug,
+          :project_key,
+          :board_id,
+          :assignee,
+          :active_states,
+          :terminal_states
+        ],
         empty_values: []
       )
     end
@@ -366,10 +386,20 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp finalize_settings(settings) do
+    env_file_vars = load_env_file(settings.tracker.env_file)
+
     tracker = %{
       settings.tracker
-      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+      | api_key: resolve_secret_setting(settings.tracker.api_key, env_value(env_file_vars, "LINEAR_API_KEY")),
+        env_file: resolve_path_value(settings.tracker.env_file, nil),
+        url: resolve_secret_setting(settings.tracker.url, env_value(env_file_vars, "JIRA_URL")),
+        username: resolve_secret_setting(settings.tracker.username, env_value(env_file_vars, "JIRA_USERNAME")),
+        api_token: resolve_secret_setting(settings.tracker.api_token, env_value(env_file_vars, "JIRA_API_TOKEN")),
+        assignee:
+          resolve_secret_setting(
+            settings.tracker.assignee,
+            env_value(env_file_vars, "LINEAR_ASSIGNEE") || env_value(env_file_vars, "JIRA_ASSIGNEE")
+          )
     }
 
     workspace = %{
@@ -435,6 +465,8 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defp resolve_path_value(_value, default), do: default
+
   defp resolve_env_value(value, fallback) when is_binary(value) do
     case env_reference_name(value) do
       {:ok, env_name} ->
@@ -478,6 +510,77 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_secret_value(_value), do: nil
+
+  defp env_value(env_file_vars, key) when is_map(env_file_vars) and is_binary(key) do
+    Map.get(env_file_vars, key) || System.get_env(key)
+  end
+
+  defp load_env_file(nil), do: %{}
+  defp load_env_file(""), do: %{}
+
+  defp load_env_file(path) when is_binary(path) do
+    path = resolve_path_value(path, nil)
+
+    cond do
+      is_nil(path) ->
+        %{}
+
+      not File.regular?(Path.expand(path)) ->
+        %{}
+
+      true ->
+        path
+        |> Path.expand()
+        |> File.read!()
+        |> parse_env_file()
+        |> tap(fn vars ->
+          Enum.each(vars, fn {key, value} ->
+            if is_nil(System.get_env(key)), do: System.put_env(key, value)
+          end)
+        end)
+    end
+  end
+
+  defp parse_env_file(contents) when is_binary(contents) do
+    contents
+    |> String.split("\n")
+    |> Enum.reduce(%{}, fn line, acc ->
+      line = String.trim(line)
+
+      cond do
+        line == "" or String.starts_with?(line, "#") ->
+          acc
+
+        String.contains?(line, "=") ->
+          [key, value] = String.split(line, "=", parts: 2)
+          key = String.trim(key)
+
+          if String.match?(key, ~r/^[A-Za-z_][A-Za-z0-9_]*$/) do
+            Map.put(acc, key, unquote_env_value(value))
+          else
+            acc
+          end
+
+        true ->
+          acc
+      end
+    end)
+  end
+
+  defp unquote_env_value(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") and byte_size(value) >= 2 ->
+        value |> String.slice(1..-2//1) |> String.replace("\\\"", "\"")
+
+      String.starts_with?(value, "'") and String.ends_with?(value, "'") and byte_size(value) >= 2 ->
+        String.slice(value, 1..-2//1)
+
+      true ->
+        value
+    end
+  end
 
   defp default_turn_sandbox_policy(workspace) do
     %{

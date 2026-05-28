@@ -3,23 +3,38 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
   alias SymphonyElixir.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql input contract" do
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "query" => _,
-                   "variables" => _
-                 },
-                 "required" => ["query"],
-                 "type" => "object"
+  test "tool_specs advertises tracker tool input contracts" do
+    specs = DynamicTool.tool_specs()
+
+    assert %{
+             "description" => description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "query" => _,
+                 "variables" => _
                },
-               "name" => "linear_graphql"
-             }
-           ] = DynamicTool.tool_specs()
+               "required" => ["query"],
+               "type" => "object"
+             },
+             "name" => "linear_graphql"
+           } = Enum.find(specs, &(&1["name"] == "linear_graphql"))
 
     assert description =~ "Linear"
+
+    assert %{
+             "description" => jira_description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "method" => _,
+                 "path" => _
+               },
+               "required" => ["method", "path"],
+               "type" => "object"
+             },
+             "name" => "jira_rest"
+           } = Enum.find(specs, &(&1["name"] == "jira_rest"))
+
+    assert jira_description =~ "Jira"
   end
 
   test "unsupported tools return a failure payload with the supported tool list" do
@@ -30,7 +45,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql"]
+               "supportedTools" => ["linear_graphql", "jira_rest"]
              }
            }
 
@@ -306,5 +321,42 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
     assert response["success"] == true
     assert response["output"] == ":ok"
+  end
+
+  test "jira_rest forwards authenticated REST requests through the Jira client" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "jira_rest",
+        %{
+          "method" => "GET",
+          "path" => "/rest/api/3/issue/CDP-1",
+          "query" => %{"fields" => "summary"}
+        },
+        jira_client: fn method, path, opts ->
+          send(test_pid, {:jira_client_called, method, path, opts})
+          {:ok, %{"key" => "CDP-1"}}
+        end
+      )
+
+    assert_received {:jira_client_called, "get", "/rest/api/3/issue/CDP-1", [params: %{"fields" => "summary"}]}
+    assert response["success"] == true
+    assert Jason.decode!(response["output"]) == %{"key" => "CDP-1"}
+  end
+
+  test "jira_rest validates required arguments" do
+    response =
+      DynamicTool.execute(
+        "jira_rest",
+        %{"method" => "GET", "path" => "rest/api/3/issue/CDP-1"},
+        jira_client: fn _method, _path, _opts -> flunk("jira client should not be called") end
+      )
+
+    assert response["success"] == false
+
+    assert Jason.decode!(response["output"]) == %{
+             "error" => %{"message" => "`jira_rest.path` must be a Jira REST path beginning with `/`."}
+           }
   end
 end

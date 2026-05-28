@@ -95,7 +95,13 @@ defmodule SymphonyElixir.TestSupport do
           tracker_kind: "linear",
           tracker_endpoint: "https://api.linear.app/graphql",
           tracker_api_token: "token",
+          tracker_env_file: nil,
+          tracker_url: nil,
+          tracker_username: nil,
+          tracker_jira_api_token: nil,
           tracker_project_slug: "project",
+          tracker_project_key: nil,
+          tracker_board_id: nil,
           tracker_assignee: nil,
           tracker_active_states: ["Todo", "In Progress"],
           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
@@ -132,7 +138,13 @@ defmodule SymphonyElixir.TestSupport do
     tracker_kind = Keyword.get(config, :tracker_kind)
     tracker_endpoint = Keyword.get(config, :tracker_endpoint)
     tracker_api_token = Keyword.get(config, :tracker_api_token)
+    tracker_env_file = Keyword.get(config, :tracker_env_file)
+    tracker_url = Keyword.get(config, :tracker_url)
+    tracker_username = Keyword.get(config, :tracker_username)
+    tracker_jira_api_token = Keyword.get(config, :tracker_jira_api_token)
     tracker_project_slug = Keyword.get(config, :tracker_project_slug)
+    tracker_project_key = Keyword.get(config, :tracker_project_key)
+    tracker_board_id = Keyword.get(config, :tracker_board_id)
     tracker_assignee = Keyword.get(config, :tracker_assignee)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
@@ -170,7 +182,13 @@ defmodule SymphonyElixir.TestSupport do
         "  kind: #{yaml_value(tracker_kind)}",
         "  endpoint: #{yaml_value(tracker_endpoint)}",
         "  api_key: #{yaml_value(tracker_api_token)}",
+        "  env_file: #{yaml_value(tracker_env_file)}",
+        "  url: #{yaml_value(tracker_url)}",
+        "  username: #{yaml_value(tracker_username)}",
+        "  api_token: #{yaml_value(tracker_jira_api_token)}",
         "  project_slug: #{yaml_value(tracker_project_slug)}",
+        "  project_key: #{yaml_value(tracker_project_key)}",
+        "  board_id: #{yaml_value(tracker_board_id)}",
         "  assignee: #{yaml_value(tracker_assignee)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
