@@ -529,15 +529,21 @@ defmodule SymphonyElixir.Config.Schema do
         %{}
 
       true ->
-        path
-        |> Path.expand()
-        |> File.read!()
-        |> parse_env_file()
-        |> tap(fn vars ->
-          Enum.each(vars, fn {key, value} ->
-            if is_nil(System.get_env(key)), do: System.put_env(key, value)
-          end)
-        end)
+        expanded = Path.expand(path)
+
+        case File.read(expanded) do
+          {:ok, contents} ->
+            contents
+            |> parse_env_file()
+            |> tap(fn vars ->
+              Enum.each(vars, fn {key, value} ->
+                if is_nil(System.get_env(key)), do: System.put_env(key, value)
+              end)
+            end)
+
+          {:error, _reason} ->
+            %{}
+        end
     end
   end
 

@@ -114,18 +114,22 @@ defmodule SymphonyElixir.Jira.Client do
 
     with {:ok, body} <-
            get("/rest/agile/1.0/board/#{URI.encode(board_id)}/issue", params: params) do
-      issues = normalize_issues(body["issues"], assignee_filter)
+      raw_issues = raw_issues(body["issues"])
+      issues = normalize_issues(raw_issues, assignee_filter)
       updated_acc = Enum.reverse(issues, acc_issues)
-      next_start_at = start_at + length(issues)
+      next_start_at = start_at + length(raw_issues)
       total = body["total"] || next_start_at
 
-      if length(issues) > 0 and next_start_at < total do
+      if raw_issues != [] and next_start_at < total do
         fetch_board_issues_page(board_id, jql, assignee_filter, next_start_at, updated_acc)
       else
         {:ok, Enum.reverse(updated_acc)}
       end
     end
   end
+
+  defp raw_issues(issues) when is_list(issues), do: issues
+  defp raw_issues(_issues), do: []
 
   defp get(path, opts), do: request("get", path, opts)
   defp post(path, json), do: request("post", path, json: json)
@@ -158,18 +162,21 @@ defmodule SymphonyElixir.Jira.Client do
 
   defp validate_board_config(tracker) do
     with :ok <- validate_auth_config(tracker) do
-      if is_binary(tracker.board_id), do: :ok, else: {:error, :missing_jira_board_id}
+      if present_binary?(tracker.board_id), do: :ok, else: {:error, :missing_jira_board_id}
     end
   end
 
   defp validate_auth_config(tracker) do
     cond do
-      not is_binary(tracker.url) -> {:error, :missing_jira_url}
-      not is_binary(tracker.username) -> {:error, :missing_jira_username}
-      not is_binary(tracker.api_token) -> {:error, :missing_jira_api_token}
+      not present_binary?(tracker.url) -> {:error, :missing_jira_url}
+      not present_binary?(tracker.username) -> {:error, :missing_jira_username}
+      not present_binary?(tracker.api_token) -> {:error, :missing_jira_api_token}
       true -> :ok
     end
   end
+
+  defp present_binary?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_binary?(_value), do: false
 
   defp auth_headers(tracker) do
     credentials = Base.encode64("#{tracker.username}:#{tracker.api_token}")

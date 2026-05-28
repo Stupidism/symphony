@@ -13,15 +13,16 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 
 ## How it works
 
-1. Polls Linear for candidate work
+1. Polls Linear or Jira for candidate work
 2. Creates a workspace per issue
 3. Launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside the
    workspace
 4. Sends a workflow prompt to Codex
 5. Keeps Codex working on the issue until the work is done
 
-During app-server sessions, Symphony also serves a client-side `linear_graphql` tool so that repo
-skills can make raw Linear GraphQL calls.
+During app-server sessions, Symphony also serves client-side tracker tools. Linear workflows get
+`linear_graphql` for raw Linear GraphQL calls, and Jira workflows get `jira_rest` for Jira REST API
+calls through the configured Symphony credentials.
 
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces.
@@ -29,21 +30,28 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 If Codex reports that operator input, approval, or MCP elicitation is required, Symphony keeps the
 issue claimed and exposes it as blocked in the runtime state, JSON API, and dashboard. Blocked
 entries are in memory only; restarting the orchestrator clears that blocked map, so any still-active
-Linear issue can become a dispatch candidate again after restart.
+tracker issue can become a dispatch candidate again after restart.
 
 ## How to use it
 
 1. Make sure your codebase is set up to work well with agents: see
    [Harness engineering](https://openai.com/index/harness-engineering/).
-2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
-   set it as the `LINEAR_API_KEY` environment variable.
+2. Configure either Linear or Jira credentials.
+   - Linear: get a personal token via Settings -> Security & access -> Personal API keys, and set it
+     as `LINEAR_API_KEY`.
+   - Jira: set `JIRA_URL`, `JIRA_USERNAME`, and `JIRA_API_TOKEN`, or put those keys in the
+     `tracker.env_file` referenced by `WORKFLOW.md`.
 3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
+4. Optionally copy the `commit`, `push`, `pull`, `land`, and tracker-specific skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
+   - Jira workflows should use a Jira-aware skill or prompt that calls Symphony's `jira_rest`
+     app-server tool for issue reads, comments, and transitions.
 5. Customize the copied `WORKFLOW.md` file for your project.
-   - To get your project's slug, right-click the project and copy its URL. The slug is part of the
-     URL.
+   - For Linear, get your project's slug by right-clicking the project and copying its URL. The slug
+     is part of the URL.
+   - For Jira, set `tracker.board_id` to the numeric board ID and optionally set
+     `tracker.project_key` for dashboard links and prompt context.
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
@@ -112,6 +120,37 @@ You are working on a Linear issue {{ issue.identifier }}.
 Title: {{ issue.title }} Body: {{ issue.description }}
 ```
 
+Jira tracker example:
+
+```md
+---
+tracker:
+  kind: jira
+  env_file: ~/.codex/jira-mcp.env
+  board_id: "<your-board-id>"
+  project_key: "<your-project-key>"
+  assignee: me
+  active_states:
+    - To Do
+    - In Progress
+  terminal_states:
+    - Done
+    - Cancelled
+workspace:
+  root: ~/code/workspaces
+hooks:
+  after_create: |
+    git clone git@github.com:your-org/your-repo.git .
+agent:
+  max_concurrent_agents: 10
+  max_turns: 20
+codex:
+  command: codex app-server
+---
+
+You are working on a Jira ticket {{ issue.identifier }}.
+```
+
 Notes:
 
 - If a value is missing, defaults are used.
@@ -133,6 +172,11 @@ Notes:
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
+- For Jira, `tracker.url`, `tracker.username`, and `tracker.api_token` read from `JIRA_URL`,
+  `JIRA_USERNAME`, and `JIRA_API_TOKEN` when unset or when using matching `$VAR` references.
+- `tracker.env_file` can load shell-style `KEY=value` entries before tracker settings are resolved.
+  Supported tracker keys include `LINEAR_API_KEY`, `LINEAR_ASSIGNEE`, `JIRA_URL`, `JIRA_USERNAME`,
+  `JIRA_API_TOKEN`, and `JIRA_ASSIGNEE`.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the

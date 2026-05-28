@@ -128,22 +128,25 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
-      settings.tracker.kind == "jira" and not is_binary(settings.tracker.url) ->
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.url) ->
         {:error, :missing_jira_url}
 
-      settings.tracker.kind == "jira" and not is_binary(settings.tracker.username) ->
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.username) ->
         {:error, :missing_jira_username}
 
-      settings.tracker.kind == "jira" and not is_binary(settings.tracker.api_token) ->
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.api_token) ->
         {:error, :missing_jira_api_token}
 
-      settings.tracker.kind == "jira" and not is_binary(settings.tracker.board_id) ->
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.board_id) ->
         {:error, :missing_jira_board_id}
 
       true ->
         :ok
     end
   end
+
+  defp present_binary?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_binary?(_value), do: false
 
   defp format_config_error(reason) do
     case reason do

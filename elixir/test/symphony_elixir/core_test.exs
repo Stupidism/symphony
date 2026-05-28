@@ -88,6 +88,28 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
   end
 
+  test "jira config validation rejects blank required values" do
+    base_jira_config = [
+      tracker_kind: "jira",
+      tracker_url: "https://example.atlassian.net",
+      tracker_username: "agent@example.com",
+      tracker_jira_api_token: "token",
+      tracker_board_id: "123",
+      tracker_project_slug: nil
+    ]
+
+    for {field, error} <- [
+          {:tracker_url, :missing_jira_url},
+          {:tracker_username, :missing_jira_username},
+          {:tracker_jira_api_token, :missing_jira_api_token},
+          {:tracker_board_id, :missing_jira_board_id}
+        ] do
+      write_workflow_file!(Workflow.workflow_file_path(), Keyword.put(base_jira_config, field, "   "))
+
+      assert {:error, ^error} = Config.validate!()
+    end
+  end
+
   test "current WORKFLOW.md file is valid and complete" do
     original_workflow_path = Workflow.workflow_file_path()
     on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
@@ -99,9 +121,9 @@ defmodule SymphonyElixir.CoreTest do
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
     assert Map.get(tracker, "kind") == "jira"
-    assert Map.get(tracker, "env_file") == "/Users/feng/.codex/jira-mcp.env"
-    assert Map.get(tracker, "board_id") == "8551"
-    assert Map.get(tracker, "project_key") == "CDP"
+    assert Map.get(tracker, "env_file") == "~/.codex/jira-mcp.env"
+    assert Map.get(tracker, "board_id") == "<your-board-id>"
+    assert Map.get(tracker, "project_key") == "<your-project-key>"
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 

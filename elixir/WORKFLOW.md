@@ -1,9 +1,10 @@
 ---
 tracker:
   kind: jira
-  env_file: /Users/feng/.codex/jira-mcp.env
-  board_id: "8551"
-  project_key: CDP
+  # The env file may provide JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN, and JIRA_ASSIGNEE.
+  env_file: ~/.codex/jira-mcp.env
+  board_id: "<your-board-id>"
+  project_key: "<your-project-key>"
   assignee: me
   active_states:
     - To Do
