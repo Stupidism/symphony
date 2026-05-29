@@ -1,18 +1,19 @@
 ---
 tracker:
-  kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  kind: jira
+  # The env file may provide JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN, and JIRA_ASSIGNEE.
+  env_file: ~/.codex/jira-mcp.env
+  board_id: "<your-board-id>"
+  project_key: "<your-project-key>"
+  assignee: me
   active_states:
-    - Todo
+    - To Do
     - In Progress
-    - Merging
     - Rework
+    - Merging
   terminal_states:
-    - Closed
-    - Cancelled
-    - Canceled
-    - Duplicate
     - Done
+    - Cancelled
 polling:
   interval_ms: 5000
 workspace:
@@ -36,7 +37,7 @@ codex:
     type: workspaceWrite
 ---
 
-You are working on a Linear ticket `{{ issue.identifier }}`
+You are working on a Jira ticket `{{ issue.identifier }}`
 
 {% if attempt %}
 Continuation context:
@@ -69,9 +70,9 @@ Instructions:
 
 Work only in the provided repository copy. Do not touch any other path.
 
-## Prerequisite: Linear MCP or `linear_graphql` tool is available
+## Prerequisite: Jira access is available
 
-The agent should be able to talk to Linear, either via a configured Linear MCP server or injected `linear_graphql` tool. If none are present, stop and ask the user to configure Linear.
+The agent should be able to talk to Jira via the injected `jira_rest` tool. If it is unavailable, stop and record the missing Jira access as a blocker.
 
 ## Default posture
 
@@ -80,11 +81,11 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - Spend extra effort up front on planning and verification design before implementation.
 - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
 - Keep ticket metadata current (state, checklist, acceptance criteria, links).
-- Treat a single persistent Linear comment as the source of truth for progress.
+- Treat a single persistent Jira comment as the source of truth for progress.
 - Use that single workpad comment for all progress and handoff notes; do not post separate "done"/summary comments.
 - Treat any ticket-authored `Validation`, `Test Plan`, or `Testing` section as non-negotiable acceptance input: mirror it in the workpad and execute it before considering the work complete.
 - When meaningful out-of-scope improvements are discovered during execution,
-  file a separate Linear issue instead of expanding scope. The follow-up issue
+  file a separate Jira issue instead of expanding scope. The follow-up issue
   must include a clear title, description, and acceptance criteria, be placed in
   `Backlog`, be assigned to the same project as the current issue, link the
   current issue as `related`, and use `blockedBy` when the follow-up depends on
@@ -95,7 +96,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 
 ## Related skills
 
-- `linear`: interact with Linear.
+- Use `jira_rest` for Jira issue reads, comments, and transitions.
 - `commit`: produce clean, logical commits during implementation.
 - `push`: keep remote branch current and publish updates.
 - `pull`: keep branch updated with latest `origin/main` before handoff.
@@ -104,7 +105,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 ## Status map
 
 - `Backlog` -> out of scope for this workflow; do not modify.
-- `Todo` -> queued; immediately transition to `In Progress` before active work.
+- `To Do` -> queued; immediately transition to `In Progress` before active work.
   - Special case: if a PR is already attached, treat as feedback/rework loop (run full PR feedback sweep, address or explicitly push back, revalidate, return to `Human Review`).
 - `In Progress` -> implementation actively underway.
 - `Human Review` -> PR is attached and validated; waiting on human approval.
@@ -117,8 +118,8 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 1. Fetch the issue by explicit ticket ID.
 2. Read the current state.
 3. Route to the matching flow:
-   - `Backlog` -> do not modify issue content/state; stop and wait for human to move it to `Todo`.
-   - `Todo` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
+   - `Backlog` -> do not modify issue content/state; stop and wait for human to move it to `To Do`.
+   - `To Do` -> immediately move to `In Progress`, then ensure bootstrap workpad comment exists (create if missing), then start execution flow.
      - If PR is already attached, start by reviewing all open PR comments and deciding required changes vs explicit pushback responses.
    - `In Progress` -> continue execution flow from current scratchpad comment.
    - `Human Review` -> wait and poll for decision/review updates.
@@ -128,13 +129,13 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 4. Check whether a PR already exists for the current branch and whether it is closed.
    - If a branch PR exists and is `CLOSED` or `MERGED`, treat prior branch work as non-reusable for this run.
    - Create a fresh branch from `origin/main` and restart execution flow as a new attempt.
-5. For `Todo` tickets, do startup sequencing in this exact order:
+5. For `To Do` tickets, do startup sequencing in this exact order:
    - `update_issue(..., state: "In Progress")`
    - find/create `## Codex Workpad` bootstrap comment
    - only then begin analysis/planning/implementation work.
 6. Add a short comment if state and issue content are inconsistent, then proceed with the safest flow.
 
-## Step 1: Start/continue execution (Todo or In Progress)
+## Step 1: Start/continue execution (To Do or In Progress)
 
 1.  Find or create a single persistent scratchpad comment for the issue:
     - Search existing comments for a marker header: `## Codex Workpad`.
@@ -142,7 +143,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
     - If found, reuse that comment; do not create a new workpad comment.
     - If not found, create one workpad comment and use it for all updates.
     - Persist the workpad comment ID and only write progress updates to that ID.
-2.  If arriving from `Todo`, do not delay on additional status transitions: the issue should already be `In Progress` before this step begins.
+2.  If arriving from `To Do`, do not delay on additional status transitions: the issue should already be `In Progress` before this step begins.
 3.  Immediately reconcile the workpad before new edits:
     - Check off items that are already done.
     - Expand/fix the plan so it is comprehensive for current scope.
@@ -151,7 +152,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 5.  Ensure the workpad includes a compact environment stamp at the top as a code fence line:
     - Format: `<host>:<abs-workdir>@<short-sha>`
     - Example: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-    - Do not include metadata already inferable from Linear issue fields (`issue ID`, `status`, `branch`, `PR link`).
+    - Do not include metadata already inferable from Jira issue fields (`issue key`, `status`, `branch`, `PR link`).
 6.  Add explicit acceptance criteria and TODOs in checklist form in the same comment.
     - If changes are user-facing, include a UI walkthrough acceptance criterion that describes the end-to-end user path to validate.
     - If changes touch app files or app behavior, add explicit app-specific flow checks to `Acceptance Criteria` in the workpad (for example: launch path, changed interaction path, and expected result path).
@@ -193,10 +194,10 @@ Use this only when completion is blocked by missing required tools or missing au
   - exact human action needed to unblock.
 - Keep the brief concise and action-oriented; do not add extra top-level comments outside the workpad.
 
-## Step 2: Execution phase (Todo -> In Progress -> Human Review)
+## Step 2: Execution phase (To Do -> In Progress -> Human Review)
 
 1.  Determine current repo state (`branch`, `git status`, `HEAD`) and verify the kickoff `pull` sync result is already recorded in the workpad before implementation continues.
-2.  If current issue state is `Todo`, move it to `In Progress`; otherwise leave the current state unchanged.
+2.  If current issue state is `To Do`, move it to `In Progress`; otherwise leave the current state unchanged.
 3.  Load the existing workpad comment and treat it as the active execution checklist.
     - Edit it liberally whenever reality changes (scope, risks, validation approach, discovered tasks).
 4.  Implement against the hierarchical TODOs and keep the comment current:
@@ -205,7 +206,7 @@ Use this only when completion is blocked by missing required tools or missing au
     - Keep parent/child structure intact as scope evolves.
     - Update the workpad immediately after each meaningful milestone (for example: reproduction complete, code change landed, validation run, review feedback addressed).
     - Never leave completed work unchecked in the plan.
-    - For tickets that started as `Todo` with an attached PR, run the full PR feedback sweep protocol immediately after kickoff and before new feature work.
+    - For tickets that started as `To Do` with an attached PR, run the full PR feedback sweep protocol immediately after kickoff and before new feature work.
 5.  Run validation/tests required for the scope.
     - Mandatory gate: execute all ticket-provided `Validation`/`Test Plan`/ `Testing` requirements when present; treat unmet items as incomplete work.
     - Prefer a targeted proof that directly demonstrates the behavior you changed.
@@ -233,7 +234,7 @@ Use this only when completion is blocked by missing required tools or missing au
     - Re-open and refresh the workpad before state transition so `Plan`, `Acceptance Criteria`, and `Validation` exactly match completed work.
 12. Only then move issue to `Human Review`.
     - Exception: if blocked by missing required non-GitHub tools/auth per the blocked-access escape hatch, move to `Human Review` with the blocker brief and explicit unblock actions.
-13. For `Todo` tickets that already had a PR attached at kickoff:
+13. For `To Do` tickets that already had a PR attached at kickoff:
     - Ensure all existing PR feedback was reviewed and resolved, including inline review comments (code changes or explicit, justified pushback response).
     - Ensure branch was pushed with any required updates.
     - Then move to `Human Review`.
@@ -255,7 +256,7 @@ Use this only when completion is blocked by missing required tools or missing au
 4. Remove the existing `## Codex Workpad` comment from the issue.
 5. Create a fresh branch from `origin/main`.
 6. Start over from the normal kickoff flow:
-   - If current issue state is `Todo`, move it to `In Progress`; otherwise keep the current state.
+   - If current issue state is `To Do`, move it to `In Progress`; otherwise keep the current state.
    - Create a new bootstrap `## Codex Workpad` comment.
    - Build a fresh plan/checklist and execute end-to-end.
 
@@ -273,7 +274,7 @@ Use this only when completion is blocked by missing required tools or missing au
 
 - If the branch PR is already closed/merged, do not reuse that branch or prior implementation state for continuation.
 - For closed/merged branch PRs, create a new branch from `origin/main` and restart from reproduction/planning as if starting fresh.
-- If issue state is `Backlog`, do not modify it; wait for human to move to `Todo`.
+- If issue state is `Backlog`, do not modify it; wait for human to move to `To Do`.
 - Do not edit the issue body/description for planning or progress tracking.
 - Use exactly one persistent workpad comment (`## Codex Workpad`) per issue.
 - If comment editing is unavailable in-session, use the update script. Only report blocked if both MCP editing and script-based editing are unavailable.

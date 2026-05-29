@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Config do
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
-  You are working on a Linear issue.
+  You are working on a tracker issue.
 
   Identifier: {{ issue.identifier }}
   Title: {{ issue.title }}
@@ -26,6 +26,9 @@ defmodule SymphonyElixir.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc """
+  Loads and parses the current workflow configuration.
+  """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
     case Workflow.current() do
@@ -37,6 +40,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Loads the current workflow configuration or raises a formatted error.
+  """
   @spec settings!() :: Schema.t()
   def settings! do
     case settings() do
@@ -48,6 +54,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Returns the effective global concurrency limit for an issue state.
+  """
   @spec max_concurrent_agents_for_state(term()) :: pos_integer()
   def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
     config = settings!()
@@ -61,6 +70,9 @@ defmodule SymphonyElixir.Config do
 
   def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
 
+  @doc """
+  Builds the Codex turn sandbox policy for a workspace.
+  """
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do
@@ -72,6 +84,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Returns the workflow prompt template, falling back to the built-in default when blank.
+  """
   @spec workflow_prompt() :: String.t()
   def workflow_prompt do
     case Workflow.current() do
@@ -83,6 +98,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Returns the configured observability server port or the runtime override.
+  """
   @spec server_port() :: non_neg_integer() | nil
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
@@ -91,6 +109,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Validates semantic settings that are not covered by schema casting.
+  """
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
@@ -98,6 +119,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @doc """
+  Returns the Codex runtime policy settings for a workspace.
+  """
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -119,7 +143,7 @@ defmodule SymphonyElixir.Config do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
+      settings.tracker.kind not in ["linear", "jira", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
@@ -128,10 +152,25 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.url) ->
+        {:error, :missing_jira_url}
+
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.username) ->
+        {:error, :missing_jira_username}
+
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.api_token) ->
+        {:error, :missing_jira_api_token}
+
+      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.board_id) ->
+        {:error, :missing_jira_board_id}
+
       true ->
         :ok
     end
   end
+
+  defp present_binary?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_binary?(_value), do: false
 
   defp format_config_error(reason) do
     case reason do

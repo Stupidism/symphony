@@ -11,34 +11,53 @@ defmodule SymphonyElixir.Tracker do
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
 
+  @doc """
+  Fetches currently dispatchable issues from the configured tracker.
+  """
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
     adapter().fetch_candidate_issues()
   end
 
+  @doc """
+  Fetches issues matching the provided tracker state names.
+  """
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states) do
     adapter().fetch_issues_by_states(states)
   end
 
+  @doc """
+  Fetches current state snapshots for the provided tracker issue IDs.
+  """
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
     adapter().fetch_issue_states_by_ids(issue_ids)
   end
 
+  @doc """
+  Creates a tracker comment through the active adapter.
+  """
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     adapter().create_comment(issue_id, body)
   end
 
+  @doc """
+  Moves a tracker issue to the requested state through the active adapter.
+  """
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     adapter().update_issue_state(issue_id, state_name)
   end
 
+  @doc """
+  Returns the adapter module selected by `tracker.kind`.
+  """
   @spec adapter() :: module()
   def adapter do
     case Config.settings!().tracker.kind do
+      "jira" -> SymphonyElixir.Jira.Adapter
       "memory" -> SymphonyElixir.Tracker.Memory
       _ -> SymphonyElixir.Linear.Adapter
     end

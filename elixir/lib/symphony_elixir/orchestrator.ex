@@ -262,6 +262,22 @@ defmodule SymphonyElixir.Orchestrator do
         Logger.error("Linear project slug missing in WORKFLOW.md")
         state
 
+      {:error, :missing_jira_url} ->
+        Logger.error("Jira URL missing in WORKFLOW.md or environment")
+        state
+
+      {:error, :missing_jira_username} ->
+        Logger.error("Jira username missing in WORKFLOW.md or environment")
+        state
+
+      {:error, :missing_jira_api_token} ->
+        Logger.error("Jira API token missing in WORKFLOW.md or environment")
+        state
+
+      {:error, :missing_jira_board_id} ->
+        Logger.error("Jira board id missing in WORKFLOW.md")
+        state
+
       {:error, :missing_tracker_kind} ->
         Logger.error("Tracker kind missing in WORKFLOW.md")
 
@@ -289,7 +305,7 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
+        Logger.error("Failed to fetch from tracker: #{inspect(reason)}")
         state
 
       false ->
