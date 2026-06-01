@@ -86,6 +86,25 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "123")
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(), vcs_provider: "bitbucket")
+    assert {:error, {:unsupported_vcs_provider, "bitbucket"}} = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(), vcs_repo: "   ")
+    assert {:error, :missing_vcs_repo} = Config.validate!()
+  end
+
+  test "vcs helper describes provider behavior" do
+    assert SymphonyElixir.VCS.supported_provider?("github")
+    assert SymphonyElixir.VCS.supported_provider?("gitlab")
+    refute SymphonyElixir.VCS.supported_provider?("bitbucket")
+
+    assert SymphonyElixir.VCS.cli("github") == "gh"
+    assert SymphonyElixir.VCS.cli("gitlab") == "glab"
+
+    assert SymphonyElixir.VCS.pull_request_label("github") == "pull request"
+    assert SymphonyElixir.VCS.pull_request_label("gitlab") == "merge request"
+    assert SymphonyElixir.VCS.pull_request_label("future") == "pull request"
   end
 
   test "jira config validation rejects blank required values" do
@@ -126,6 +145,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(tracker, "project_key") == "<your-project-key>"
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
+
+    vcs = Map.get(config, "vcs", %{})
+    assert is_map(vcs)
+    assert Map.get(vcs, "provider") == "github"
+    assert Map.get(vcs, "repo") == "openai/symphony"
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
@@ -567,6 +591,7 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(50)
     state = :sys.get_state(pid)
@@ -575,7 +600,7 @@ defmodule SymphonyElixir.CoreTest do
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, 250, 1_100)
+    assert_due_after(due_at_ms, before_down_ms, 250, 1_100)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -608,6 +633,7 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
     state = :sys.get_state(pid)
@@ -615,7 +641,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 39_000, 40_500)
+    assert_due_after(due_at_ms, before_down_ms, 39_000, 40_500)
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -647,6 +673,7 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    before_down_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
     state = :sys.get_state(pid)
@@ -654,7 +681,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 9_000, 10_500)
+    assert_due_after(due_at_ms, before_down_ms, 9_000, 10_500)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
@@ -774,11 +801,11 @@ defmodule SymphonyElixir.CoreTest do
     assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
   end
 
-  defp assert_due_in_range(due_at_ms, min_remaining_ms, max_remaining_ms) do
-    remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
+  defp assert_due_after(due_at_ms, reference_ms, min_delay_ms, max_delay_ms) do
+    delay_ms = due_at_ms - reference_ms
 
-    assert remaining_ms >= min_remaining_ms
-    assert remaining_ms <= max_remaining_ms
+    assert delay_ms >= min_delay_ms
+    assert delay_ms <= max_delay_ms
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
@@ -993,7 +1020,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Only stop early for a true blocker"
     assert prompt =~ "Do not include \"next steps for user\""
     assert prompt =~ "open and follow `.codex/skills/land/SKILL.md`"
-    assert prompt =~ "Do not call `gh pr merge` directly"
+    assert prompt =~ "Do not call `gh pr merge` or `glab mr merge` directly"
     assert prompt =~ "Continuation context:"
     assert prompt =~ "retry attempt #2"
   end
@@ -1027,6 +1054,7 @@ defmodule SymphonyElixir.CoreTest do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-env.trace")
 
       File.mkdir_p!(template_repo)
       File.mkdir_p!(workspace_root)
@@ -1039,6 +1067,13 @@ defmodule SymphonyElixir.CoreTest do
 
       File.write!(codex_binary, """
       #!/bin/sh
+      {
+        printf 'TICKET_SYSTEM=%s\\n' "$TICKET_SYSTEM"
+        printf 'TICKET_ID=%s\\n' "$TICKET_ID"
+        printf 'VCS_PROVIDER=%s\\n' "$VCS_PROVIDER"
+        printf 'VCS_REPO=%s\\n' "$VCS_REPO"
+      } > "#{trace_file}"
+
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1095,6 +1130,13 @@ defmodule SymphonyElixir.CoreTest do
       workspace = Path.join(workspace_root, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
+
+      assert File.read!(trace_file) == """
+             TICKET_SYSTEM=linear
+             TICKET_ID=S-99
+             VCS_PROVIDER=github
+             VCS_REPO=openai/symphony
+             """
     after
       File.rm_rf(test_root)
     end

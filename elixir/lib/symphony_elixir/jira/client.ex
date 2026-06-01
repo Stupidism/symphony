@@ -240,16 +240,21 @@ defmodule SymphonyElixir.Jira.Client do
         {:ok, nil}
 
       "me" ->
-        with {:ok, body} <- get("/rest/api/3/myself", []) do
-          account_id = body["accountId"]
-
-          if is_binary(account_id),
-            do: {:ok, %{match_values: MapSet.new([account_id])}},
-            else: {:error, :missing_jira_viewer_identity}
-        end
+        viewer_assignee_filter()
 
       assignee ->
         {:ok, %{match_values: MapSet.new([assignee])}}
+    end
+  end
+
+  defp viewer_assignee_filter do
+    with {:ok, body} <- get("/rest/api/3/myself", []),
+         account_id when is_binary(account_id) <- body["accountId"] do
+      {:ok, %{match_values: MapSet.new([account_id])}}
+    else
+      {:error, reason} -> {:error, reason}
+      nil -> {:error, :missing_jira_viewer_identity}
+      _reason -> {:error, :missing_jira_viewer_identity}
     end
   end
 

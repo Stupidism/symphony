@@ -139,6 +139,24 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule VCS do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:provider, :string, default: "github")
+      field(:repo, :string, default: "openai/symphony")
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:provider, :repo], empty_values: [])
+    end
+  end
+
   defmodule Agent do
     @moduledoc false
     use Ecto.Schema
@@ -286,6 +304,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:vcs, VCS, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
@@ -378,6 +397,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
+    |> cast_embed(:vcs, with: &VCS.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
@@ -519,58 +539,54 @@ defmodule SymphonyElixir.Config.Schema do
   defp load_env_file(""), do: %{}
 
   defp load_env_file(path) when is_binary(path) do
-    path = resolve_path_value(path, nil)
-
-    cond do
-      is_nil(path) ->
-        %{}
-
-      not File.regular?(Path.expand(path)) ->
-        %{}
-
-      true ->
-        expanded = Path.expand(path)
-
-        case File.read(expanded) do
-          {:ok, contents} ->
-            contents
-            |> parse_env_file()
-            |> tap(fn vars ->
-              Enum.each(vars, fn {key, value} ->
-                if is_nil(System.get_env(key)), do: System.put_env(key, value)
-              end)
-            end)
-
-          {:error, _reason} ->
-            %{}
-        end
+    with path when is_binary(path) <- resolve_path_value(path, nil),
+         expanded = Path.expand(path),
+         true <- File.regular?(expanded),
+         {:ok, contents} <- File.read(expanded) do
+      contents
+      |> parse_env_file()
+      |> tap(&put_missing_env_vars/1)
+    else
+      _reason -> %{}
     end
+  end
+
+  defp put_missing_env_vars(vars) do
+    Enum.each(vars, fn {key, value} ->
+      if is_nil(System.get_env(key)), do: System.put_env(key, value)
+    end)
   end
 
   defp parse_env_file(contents) when is_binary(contents) do
     contents
     |> String.split("\n")
-    |> Enum.reduce(%{}, fn line, acc ->
-      line = String.trim(line)
+    |> Enum.reduce(%{}, &parse_env_line/2)
+  end
 
-      cond do
-        line == "" or String.starts_with?(line, "#") ->
-          acc
+  defp parse_env_line(line, acc) do
+    line = String.trim(line)
 
-        String.contains?(line, "=") ->
-          [key, value] = String.split(line, "=", parts: 2)
-          key = String.trim(key)
+    cond do
+      line == "" or String.starts_with?(line, "#") ->
+        acc
 
-          if String.match?(key, ~r/^[A-Za-z_][A-Za-z0-9_]*$/) do
-            Map.put(acc, key, unquote_env_value(value))
-          else
-            acc
-          end
+      String.contains?(line, "=") ->
+        put_env_line(line, acc)
 
-        true ->
-          acc
-      end
-    end)
+      true ->
+        acc
+    end
+  end
+
+  defp put_env_line(line, acc) do
+    [key, value] = String.split(line, "=", parts: 2)
+    key = String.trim(key)
+
+    if String.match?(key, ~r/^[A-Za-z_][A-Za-z0-9_]*$/) do
+      Map.put(acc, key, unquote_env_value(value))
+    else
+      acc
+    end
   end
 
   defp unquote_env_value(value) when is_binary(value) do
