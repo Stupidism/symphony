@@ -1050,6 +1050,64 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
   end
 
+  test "schema env file loading handles comments invalid lines and quotes" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-env-file-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(test_root)
+    env_file = Path.join(test_root, "workflow.env")
+    key_double = "SYMP_ENV_FILE_DOUBLE_#{System.unique_integer([:positive])}"
+    key_single = "SYMP_ENV_FILE_SINGLE_#{System.unique_integer([:positive])}"
+    key_plain = "SYMP_ENV_FILE_PLAIN_#{System.unique_integer([:positive])}"
+    existing_key = "SYMP_ENV_FILE_EXISTING_#{System.unique_integer([:positive])}"
+
+    previous_values =
+      Map.new([key_double, key_single, key_plain, existing_key], fn key ->
+        {key, System.get_env(key)}
+      end)
+
+    System.put_env(existing_key, "already-present")
+
+    on_exit(fn ->
+      File.rm_rf(test_root)
+
+      Enum.each(previous_values, fn
+        {key, nil} -> System.delete_env(key)
+        {key, value} -> System.put_env(key, value)
+      end)
+    end)
+
+    File.write!(env_file, """
+    # comment
+    #{key_double}="double \\"quoted\\" value"
+    #{key_single}='single quoted value'
+    #{key_plain}=plain value
+    #{existing_key}=from-file
+    1INVALID=ignored
+    NO_EQUALS
+    """)
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{
+                 env_file: env_file,
+                 api_key: "$#{key_double}"
+               }
+             })
+
+    assert settings.tracker.api_key == "double \"quoted\" value"
+    assert System.get_env(key_single) == "single quoted value"
+    assert System.get_env(key_plain) == "plain value"
+    assert System.get_env(existing_key) == "already-present"
+    assert is_nil(System.get_env("1INVALID"))
+
+    assert {:ok, _settings} = Schema.parse(%{tracker: %{env_file: ""}})
+    assert {:ok, _settings} = Schema.parse(%{tracker: %{env_file: Path.join(test_root, "missing.env")}})
+  end
+
   test "schema resolves sandbox policies from explicit and default workspaces" do
     explicit_policy = %{"type" => "workspaceWrite", "writableRoots" => ["/tmp/explicit"]}
 

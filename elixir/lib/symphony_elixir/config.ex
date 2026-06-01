@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Config do
   """
 
   alias SymphonyElixir.Config.Schema
+  alias SymphonyElixir.VCS
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
@@ -139,30 +140,65 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_semantics(settings) do
+    with :ok <- validate_tracker(settings.tracker) do
+      validate_vcs(settings.vcs)
+    end
+  end
+
+  defp validate_tracker(tracker) do
     cond do
-      is_nil(settings.tracker.kind) ->
+      is_nil(tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "jira", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
+      tracker.kind not in ["linear", "jira", "memory"] ->
+        {:error, {:unsupported_tracker_kind, tracker.kind}}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
+      true ->
+        validate_tracker_kind(tracker.kind, tracker)
+    end
+  end
+
+  defp validate_tracker_kind("linear", tracker) do
+    cond do
+      not is_binary(tracker.api_key) ->
         {:error, :missing_linear_api_token}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
+      not is_binary(tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
-      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.url) ->
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_tracker_kind("jira", tracker) do
+    cond do
+      not present_binary?(tracker.url) ->
         {:error, :missing_jira_url}
 
-      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.username) ->
+      not present_binary?(tracker.username) ->
         {:error, :missing_jira_username}
 
-      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.api_token) ->
+      not present_binary?(tracker.api_token) ->
         {:error, :missing_jira_api_token}
 
-      settings.tracker.kind == "jira" and not present_binary?(settings.tracker.board_id) ->
+      not present_binary?(tracker.board_id) ->
         {:error, :missing_jira_board_id}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_tracker_kind(_kind, _tracker), do: :ok
+
+  defp validate_vcs(vcs) do
+    cond do
+      not VCS.supported_provider?(vcs.provider) ->
+        {:error, {:unsupported_vcs_provider, vcs.provider}}
+
+      not present_binary?(vcs.repo) ->
+        {:error, :missing_vcs_repo}
 
       true ->
         :ok

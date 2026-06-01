@@ -562,6 +562,8 @@ Validation checks:
 - `tracker.kind` is present and supported.
 - `tracker.api_key` is present after `$` resolution.
 - `tracker.project_slug` is present when REQUIRED by the selected tracker kind.
+- `vcs.provider`, when implemented, is supported by the repository operation layer.
+- `vcs.repo`, when implemented, is present when provider-specific repository operations are enabled.
 - `codex.command` is present and non-empty.
 
 ### 6.4 Core Config Fields Summary (Cheat Sheet)
@@ -578,6 +580,8 @@ not require recognizing or validating extension fields unless that extension is 
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
+- `vcs.provider`: string, implementation-defined, commonly `github` or `gitlab`
+- `vcs.repo`: string, implementation-defined repository path accepted by the selected provider CLI
 - `hooks.after_create`: shell script or null
 - `hooks.before_run`: shell script or null
 - `hooks.after_run`: shell script or null

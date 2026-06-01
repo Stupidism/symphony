@@ -52,6 +52,8 @@ tracker issue can become a dispatch candidate again after restart.
      is part of the URL.
    - For Jira, set `tracker.board_id` to the numeric board ID and optionally set
      `tracker.project_key` for dashboard links and prompt context.
+   - Set `vcs.provider` to `github` for `gh` or `gitlab` for `glab`, and set `vcs.repo` to the
+     repository path accepted by the selected CLI.
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
@@ -105,6 +107,9 @@ tracker:
   project_slug: "..."
 workspace:
   root: ~/code/workspaces
+vcs:
+  provider: github
+  repo: your-org/your-repo
 hooks:
   after_create: |
     git clone git@github.com:your-org/your-repo.git .
@@ -138,9 +143,12 @@ tracker:
     - Cancelled
 workspace:
   root: ~/code/workspaces
+vcs:
+  provider: gitlab
+  repo: your-group/your-project
 hooks:
   after_create: |
-    git clone git@github.com:your-org/your-repo.git .
+    git clone git@gitlab.example.com:your-group/your-project.git .
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -169,6 +177,11 @@ Notes:
   identifier, title, and body.
 - Use `hooks.after_create` to bootstrap a fresh workspace. For a Git-backed repo, you can run
   `git clone ... .` there, along with any other setup commands you need.
+- `vcs.provider` controls repository-hosting operations outside plain Git:
+  - `github` uses the GitHub CLI (`gh`) and pull requests.
+  - `gitlab` uses the GitLab CLI (`glab`) and merge requests.
+  Set `vcs.repo` to the repository path accepted by the selected CLI, for example
+  `owner/repo` for GitHub or `group/subgroup/repo` for GitLab.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.

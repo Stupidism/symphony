@@ -1,18 +1,18 @@
 ---
 name: land
 description:
-  Land a PR by monitoring conflicts, resolving them, waiting for checks, and
-  squash-merging when green; use when asked to land, merge, or shepherd a PR to
-  completion.
+  Land a PR/MR by monitoring conflicts, resolving them, waiting for checks, and
+  squash-merging when green; use when asked to land, merge, or shepherd a PR/MR
+  to completion.
 ---
 
 # Land
 
 ## Goals
 
-- Ensure the PR is conflict-free with main.
+- Ensure the PR/MR is conflict-free with main.
 - Keep CI green and fix failures when they occur.
-- Squash-merge the PR once checks pass.
+- Squash-merge the PR/MR once checks pass.
 - Do not yield to the user until the PR is merged; keep the watcher loop running
   unless blocked.
 - No need to delete remote branches after merge; the repo auto-deletes head
@@ -20,12 +20,15 @@ description:
 
 ## Preconditions
 
-- `gh` CLI is authenticated.
-- You are on the PR branch with a clean working tree.
+- For GitHub workflows: `gh` CLI is authenticated.
+- For GitLab workflows: `glab` CLI is authenticated.
+- Read `vcs.provider` and `vcs.repo` from `WORKFLOW.md`; use `github`/`gh` for
+  PRs and `gitlab`/`glab` for MRs.
+- You are on the PR/MR branch with a clean working tree.
 
 ## Steps
 
-1. Locate the PR for the current branch.
+1. Locate the PR/MR for the current branch.
 2. Confirm the full gauntlet is green locally before any push.
 3. If the working tree has uncommitted changes, commit with the `commit` skill
    and push with the `push` skill before proceeding.
@@ -38,15 +41,15 @@ description:
 8. If checks fail, pull logs, fix the issue, commit with the `commit` skill,
    push with the `push` skill, and re-run checks.
 9. When all checks are green and review feedback is addressed, squash-merge and
-   delete the branch using the PR title/body for the merge subject/body.
+   delete the branch using the PR/MR title/body for the merge subject/body.
 10. **Context guard:** Before implementing review feedback, confirm it does not
     conflict with the user’s stated intent or task context. If it conflicts,
     respond inline with a justification and ask the user before changing code.
 11. **Pushback template:** When disagreeing, reply inline with: acknowledge +
     rationale + offer alternative.
 12. **Ambiguity gate:** When ambiguity blocks progress, use the clarification
-    flow (assign PR to current GH user, mention them, wait for response). Do not
-    implement until ambiguity is resolved.
+    flow (assign PR/MR to the current provider user, mention them, wait for response).
+    Do not implement until ambiguity is resolved.
     - If you are confident you know better than the reviewer, you may proceed
       without asking the user, but reply inline with your rationale.
 13. **Per-comment mode:** For each review comment, choose one of: accept,
@@ -58,7 +61,7 @@ description:
 ## Commands
 
 ```
-# Ensure branch and PR context
+# Ensure branch and PR context (GitHub)
 branch=$(git branch --show-current)
 pr_number=$(gh pr view --json number -q .number)
 pr_title=$(gh pr view --json title -q .title)
@@ -96,12 +99,32 @@ fi
 
 # Squash-merge (remote branches auto-delete on merge in this repo)
 gh pr merge --squash --subject "$pr_title" --body "$pr_body"
+
+# GitLab equivalent when vcs.provider is gitlab
+branch=$(git branch --show-current)
+mr_json=$(glab mr view --output json)
+mr_iid=$(printf '%s' "$mr_json" | jq -r '.iid')
+mr_title=$(printf '%s' "$mr_json" | jq -r '.title')
+mr_body=$(printf '%s' "$mr_json" | jq -r '.description // ""')
+
+# If merge status reports conflicts, run the `pull` skill and then `push`.
+merge_status=$(printf '%s' "$mr_json" | jq -r '.merge_status // .detailed_merge_status // empty')
+if [ "$merge_status" = "cannot_be_merged" ] || [ "$merge_status" = "conflicts" ]; then
+  # Run the `pull` skill to handle fetch + merge + conflict resolution.
+  # Then run the `push` skill to publish the updated branch.
+fi
+
+# Watch project checks/pipeline. If this fails, inspect with `glab ci view`.
+glab ci status
+
+# Squash-merge the MR.
+glab mr merge "$mr_iid" --squash --remove-source-branch --yes
 ```
 
 ## Async Watch Helper
 
-Preferred: use the asyncio watcher to monitor review comments, CI, and head
-updates in parallel:
+Preferred for GitHub: use the asyncio watcher to monitor review comments, CI,
+and head updates in parallel:
 
 ```
 python3 .codex/skills/land/land_watch.py
@@ -115,9 +138,12 @@ Exit codes:
 
 ## Failure Handling
 
-- If checks fail, pull details with `gh pr checks` and `gh run view --log`, then
-  fix locally, commit with the `commit` skill, push with the `push` skill, and
-  re-run the watch.
+- If GitHub checks fail, pull details with `gh pr checks` and `gh run view --log`,
+  then fix locally, commit with the `commit` skill, push with the `push` skill,
+  and re-run the watch.
+- If GitLab checks fail, pull details with `glab ci status` and `glab ci view`,
+  then fix locally, commit with the `commit` skill, push with the `push` skill,
+  and re-run the provider check.
 - Use judgment to identify flaky failures. If a failure is a flake (e.g., a
   timeout on only one platform), you may proceed without fixing it.
 - If CI pushes an auto-fix commit (authored by GitHub Actions), it does not

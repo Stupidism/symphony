@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
   use ExUnit.Case, async: false
 
   alias Mix.Tasks.Workspace.BeforeRemove
+  alias SymphonyElixir.Workflow
 
   import ExUnit.CaptureIO
 
@@ -130,6 +131,138 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
     end)
   end
 
+  test "closes open GitLab merge requests when configured for glab" do
+    with_fake_glab(fn log_path ->
+      File.write!(log_path, "")
+
+      {output, error_output} =
+        capture_task_output(fn ->
+          BeforeRemove.run([
+            "--provider",
+            "gitlab",
+            "--repo",
+            "customer-data-tech/monorepos/typescript-monorepo",
+            "--branch",
+            "feature/workpad"
+          ])
+        end)
+
+      assert output =~ "Closed MR !11 for branch feature/workpad"
+      assert error_output =~ "Failed to close MR !12 for branch feature/workpad"
+
+      log = File.read!(log_path)
+
+      assert log =~ "auth status"
+
+      assert log =~
+               "mr list --repo customer-data-tech/monorepos/typescript-monorepo --source-branch feature/workpad --output json"
+
+      assert log =~ "mr note 11 --repo customer-data-tech/monorepos/typescript-monorepo --message"
+      assert log =~ "mr close 11 --repo customer-data-tech/monorepos/typescript-monorepo"
+      assert log =~ "mr close 12 --repo customer-data-tech/monorepos/typescript-monorepo"
+    end)
+  end
+
+  test "no-ops when GitLab merge request list output is invalid or unavailable" do
+    with_fake_glab(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "mr" ] && [ "$2" = "list" ]; then
+        printf '{"not":"a-list"}'
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--provider", "gitlab", "--branch", "feature/invalid-json"])
+          end)
+
+        assert output == ""
+
+        log = File.read!(log_path)
+        assert log =~ "mr list"
+        refute log =~ "mr close"
+      end
+    )
+
+    with_fake_glab(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "mr" ] && [ "$2" = "list" ]; then
+        exit 1
+      fi
+
+      exit 99
+      """,
+      fn log_path ->
+        output =
+          capture_io(fn ->
+            BeforeRemove.run(["--provider", "gitlab", "--branch", "feature/list-fails"])
+          end)
+
+        assert output == ""
+
+        log = File.read!(log_path)
+        assert log =~ "mr list"
+        refute log =~ "mr close"
+      end
+    )
+  end
+
+  test "reports GitLab note failures before closing merge requests" do
+    with_fake_glab(
+      """
+      #!/bin/sh
+      printf '%s\n' "$*" >> "$GH_LOG"
+
+      if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+        exit 0
+      fi
+
+      if [ "$1" = "mr" ] && [ "$2" = "list" ]; then
+        printf '[{"iid":11}]'
+        exit 0
+      fi
+
+      if [ "$1" = "mr" ] && [ "$2" = "note" ]; then
+        printf 'note failed\n' >&2
+        exit 19
+      fi
+
+      if [ "$1" = "mr" ] && [ "$2" = "close" ]; then
+        exit 0
+      fi
+
+      exit 99
+      """,
+      fn _log_path ->
+        {output, error_output} =
+          capture_task_output(fn ->
+            BeforeRemove.run(["--provider", "gitlab", "--branch", "feature/note-fails"])
+          end)
+
+        assert output =~ "Closed MR !11 for branch feature/note-fails"
+        assert error_output =~ "Failed to comment on MR !11 for branch feature/note-fails"
+        assert error_output =~ "output=\"note failed\""
+      end
+    )
+  end
+
   test "formats close failures without command stderr output" do
     with_fake_gh(
       """
@@ -165,6 +298,33 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         assert log =~ "pr close 102 --repo openai/symphony"
       end
     )
+  end
+
+  test "falls back to default vcs when workflow config cannot load" do
+    with_fake_gh(fn log_path ->
+      original_workflow_path = Workflow.workflow_file_path()
+      workflow_path = Path.join(System.tmp_dir!(), "invalid-workflow-#{System.unique_integer([:positive])}.md")
+
+      File.write!(workflow_path, "---\ntracker:\n  kind: [not-valid]\n---\n")
+      Workflow.set_workflow_file_path(workflow_path)
+
+      on_exit(fn ->
+        Workflow.set_workflow_file_path(original_workflow_path)
+        File.rm(workflow_path)
+      end)
+
+      {output, _error_output} =
+        capture_task_output(fn ->
+          BeforeRemove.run(["--branch", "feature/default-vcs"])
+        end)
+
+      assert output =~ "Closed PR #101 for branch feature/default-vcs"
+
+      log = File.read!(log_path)
+
+      assert log =~
+               "pr list --repo openai/symphony --head feature/default-vcs --state open --json number --jq .[].number"
+    end)
   end
 
   test "no-ops when PR list fails for current branch" do
@@ -288,6 +448,46 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
 
   defp with_fake_gh(script, fun) do
     with_fake_binaries(%{"gh" => script}, fun)
+  end
+
+  defp with_fake_glab(fun) do
+    with_fake_binaries(
+      %{
+        "glab" => """
+        #!/bin/sh
+        printf '%s\n' "$*" >> "$GH_LOG"
+
+        if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+          exit 0
+        fi
+
+        if [ "$1" = "mr" ] && [ "$2" = "list" ]; then
+          printf '[{"iid":11},{"iid":12}]'
+          exit 0
+        fi
+
+        if [ "$1" = "mr" ] && [ "$2" = "note" ]; then
+          exit 0
+        fi
+
+        if [ "$1" = "mr" ] && [ "$2" = "close" ] && [ "$3" = "11" ]; then
+          exit 0
+        fi
+
+        if [ "$1" = "mr" ] && [ "$2" = "close" ] && [ "$3" = "12" ]; then
+          printf 'boom\n' >&2
+          exit 17
+        fi
+
+        exit 99
+        """
+      },
+      fun
+    )
+  end
+
+  defp with_fake_glab(script, fun) do
+    with_fake_binaries(%{"glab" => script}, fun)
   end
 
   defp with_fake_gh_and_git(gh_script, git_script, fun) do

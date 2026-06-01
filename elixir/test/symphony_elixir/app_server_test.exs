@@ -146,7 +146,11 @@ defmodule SymphonyElixir.AppServerTest do
       policy_cases = [
         %{"type" => "dangerFullAccess"},
         %{"type" => "externalSandbox", "profile" => "remote-ci"},
-        %{"type" => "workspaceWrite", "writableRoots" => ["relative/path"], "networkAccess" => true},
+        %{
+          "type" => "workspaceWrite",
+          "writableRoots" => ["relative/path"],
+          "networkAccess" => true
+        },
         %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
       ]
 
@@ -178,6 +182,87 @@ defmodule SymphonyElixir.AppServerTest do
                  end
                end)
       end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server exports ticket and vcs context to codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-env-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "CDP-91")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-env.trace")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      {
+        printf 'TICKET_SYSTEM=%s\\n' "$TICKET_SYSTEM"
+        printf 'TICKET_ID=%s\\n' "$TICKET_ID"
+        printf 'VCS_PROVIDER=%s\\n' "$VCS_PROVIDER"
+        printf 'VCS_REPO=%s\\n' "$VCS_REPO"
+      } > "#{trace_file}"
+
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-env"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-env"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        tracker_kind: "jira",
+        vcs_provider: "gitlab",
+        vcs_repo: "customer-data-tech/monorepos/typescript-monorepo",
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-env",
+        identifier: "CDP-91",
+        title: "Validate app-server environment",
+        description: "Ensure Codex receives ticket and VCS context",
+        state: "In Progress",
+        url: "https://example.org/issues/CDP-91",
+        labels: ["backend"]
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Validate env", issue)
+
+      assert File.read!(trace_file) == """
+             TICKET_SYSTEM=jira
+             TICKET_ID=CDP-91
+             VCS_PROVIDER=gitlab
+             VCS_REPO=customer-data-tech/monorepos/typescript-monorepo
+             """
     after
       File.rm_rf(test_root)
     end
@@ -496,9 +581,20 @@ defmodule SymphonyElixir.AppServerTest do
                  jira_tool = Enum.find(dynamic_tools, &(&1["name"] == "jira_rest"))
 
                  payload["id"] == 2 and
-                   match?(%{"description" => description, "inputSchema" => %{"required" => ["query"]}} when is_binary(description), linear_tool) and
+                   match?(
+                     %{"description" => description, "inputSchema" => %{"required" => ["query"]}}
+                     when is_binary(description),
+                     linear_tool
+                   ) and
                    linear_tool["description"] =~ "Linear" and
-                   match?(%{"description" => description, "inputSchema" => %{"required" => ["method", "path"]}} when is_binary(description), jira_tool) and
+                   match?(
+                     %{
+                       "description" => description,
+                       "inputSchema" => %{"required" => ["method", "path"]}
+                     }
+                     when is_binary(description),
+                     jira_tool
+                   ) and
                    jira_tool["description"] =~ "Jira"
                else
                  false
@@ -512,7 +608,8 @@ defmodule SymphonyElixir.AppServerTest do
                    |> String.trim_leading("JSON:")
                    |> Jason.decode!()
 
-                 payload["id"] == 99 and get_in(payload, ["result", "decision"]) == "acceptForSession"
+                 payload["id"] == 99 and
+                   get_in(payload, ["result", "decision"]) == "acceptForSession"
                else
                  false
                end
@@ -610,7 +707,12 @@ defmodule SymphonyElixir.AppServerTest do
                    |> Jason.decode!()
 
                  payload["id"] == 110 and
-                   get_in(payload, ["result", "answers", "mcp_tool_call_approval_call-717", "answers"]) ==
+                   get_in(payload, [
+                     "result",
+                     "answers",
+                     "mcp_tool_call_approval_call-717",
+                     "answers"
+                   ]) ==
                      ["Approve this Session"]
                else
                  false
@@ -1120,7 +1222,11 @@ defmodule SymphonyElixir.AppServerTest do
 
       assert_received {:tool_called, "linear_graphql", %{"query" => "query Viewer { viewer { id } }"}}
 
-      assert_received {:app_server_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "linear_graphql"}}}}
+      assert_received {:app_server_message,
+                       %{
+                         event: :tool_call_failed,
+                         payload: %{"params" => %{"tool" => "linear_graphql"}}
+                       }}
     after
       File.rm_rf(test_root)
     end
@@ -1184,7 +1290,8 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
-      assert {:ok, _result} = AppServer.run(workspace, "Validate newline-delimited buffering", issue)
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Validate newline-delimited buffering", issue)
     after
       File.rm_rf(test_root)
     end
@@ -1330,6 +1437,7 @@ defmodule SymphonyElixir.AppServerTest do
                AppServer.run(workspace, "Capture malformed protocol line", issue, on_message: on_message)
 
       assert_received {:app_server_message, %{event: :malformed, payload: "{\"method\":\"turn/completed\""}}
+
       assert_received {:app_server_message, %{event: :turn_completed}}
     after
       File.rm_rf(test_root)

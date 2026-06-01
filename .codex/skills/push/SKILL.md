@@ -2,20 +2,24 @@
 name: push
 description:
   Push current branch changes to origin and create or update the corresponding
-  pull request; use when asked to push, publish updates, or create pull request.
+  pull request or merge request; use when asked to push, publish updates, or
+  create pull request / merge request.
 ---
 
 # Push
 
 ## Prerequisites
 
-- `gh` CLI is installed and available in `PATH`.
-- `gh auth status` succeeds for GitHub operations in this repo.
+- For GitHub workflows: `gh` CLI is installed and `gh auth status` succeeds.
+- For GitLab workflows: `glab` CLI is installed and `glab auth status` succeeds.
+- Read `vcs.provider` and `vcs.repo` from `WORKFLOW.md`; use `github`/`gh` for
+  pull requests and `gitlab`/`glab` for merge requests.
 
 ## Goals
 
 - Push current branch changes to `origin` safely.
-- Create a PR if none exists for the branch, otherwise update the existing PR.
+- Create a PR/MR if none exists for the branch, otherwise update the existing
+  PR/MR.
 - Keep branch history clean when remote has moved.
 
 ## Related Skills
@@ -37,23 +41,28 @@ description:
      the configured remote, stop and surface the exact error instead of
      rewriting remotes or switching protocols as a workaround.
 
-5. Ensure a PR exists for the branch:
-   - If no PR exists, create one.
-   - If a PR exists and is open, update it.
-   - If branch is tied to a closed/merged PR, create a new branch + PR.
-   - Write a proper PR title that clearly describes the change outcome
-   - For branch updates, explicitly reconsider whether current PR title still
+5. Ensure a PR/MR exists for the branch:
+   - If no PR/MR exists, create one.
+   - If a PR/MR exists and is open, update it.
+   - If branch is tied to a closed/merged PR/MR, create a new branch + PR/MR.
+   - Write a proper title that clearly describes the change outcome
+   - For branch updates, explicitly reconsider whether current PR/MR title still
      matches the latest scope; update it if it no longer does.
-6. Write/update PR body explicitly using `.github/pull_request_template.md`:
+6. Write/update the PR/MR body explicitly:
+   - For GitHub, use `.github/pull_request_template.md`.
+   - For GitLab, use the same repository template if present; otherwise use the
+     same section structure in the MR description.
    - Fill every section with concrete content for this change.
    - Replace all placeholder comments (`<!-- ... -->`).
    - Keep bullets/checkboxes where template expects them.
-   - If PR already exists, refresh body content so it reflects the total PR
+   - If PR/MR already exists, refresh body content so it reflects the total
+     PR/MR
      scope (all intended work on the branch), not just the newest commits,
      including newly added work, removed work, or changed approach.
    - Do not reuse stale description text from earlier iterations.
-7. Validate PR body with `mix pr_body.check` and fix all reported issues.
-8. Reply with the PR URL from `gh pr view`.
+7. Validate PR/MR body with `mix pr_body.check` when the GitHub template is in
+   use; for GitLab without that template, self-check the same required sections.
+8. Reply with the PR/MR URL from `gh pr view` or `glab mr view`.
 
 ## Commands
 
@@ -77,7 +86,7 @@ git push -u origin HEAD
 # Only if history was rewritten locally:
 git push --force-with-lease origin HEAD
 
-# Ensure a PR exists (create only if missing)
+# For GitHub: ensure a PR exists (create only if missing)
 pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)
 if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
   echo "Current branch is tied to a closed PR; create a new branch + PR." >&2
@@ -106,6 +115,25 @@ rm -f "$tmp_pr_body"
 
 # Show PR URL for the reply
 gh pr view --json url -q .url
+
+# For GitLab: ensure an MR exists (create only if missing)
+mr_json=$(glab mr view --output json 2>/dev/null || true)
+mr_state=$(printf '%s' "$mr_json" | jq -r '.state // empty' 2>/dev/null || true)
+if [ "$mr_state" = "merged" ] || [ "$mr_state" = "closed" ]; then
+  echo "Current branch is tied to a closed MR; create a new branch + MR." >&2
+  exit 1
+fi
+
+mr_title="<clear MR title written for this change>"
+if [ -z "$mr_state" ]; then
+  glab mr create --title "$mr_title"
+else
+  glab mr update --title "$mr_title"
+fi
+
+# Write/edit MR body from /tmp/pr_body.md, using the same sections as the PR template.
+glab mr update --description "$(cat /tmp/pr_body.md)"
+glab mr view --output json | jq -r .web_url
 ```
 
 ## Notes
