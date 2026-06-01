@@ -1054,6 +1054,7 @@ defmodule SymphonyElixir.CoreTest do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-env.trace")
 
       File.mkdir_p!(template_repo)
       File.mkdir_p!(workspace_root)
@@ -1066,6 +1067,13 @@ defmodule SymphonyElixir.CoreTest do
 
       File.write!(codex_binary, """
       #!/bin/sh
+      {
+        printf 'TICKET_SYSTEM=%s\\n' "$TICKET_SYSTEM"
+        printf 'TICKET_ID=%s\\n' "$TICKET_ID"
+        printf 'VCS_PROVIDER=%s\\n' "$VCS_PROVIDER"
+        printf 'VCS_REPO=%s\\n' "$VCS_REPO"
+      } > "#{trace_file}"
+
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1122,6 +1130,13 @@ defmodule SymphonyElixir.CoreTest do
       workspace = Path.join(workspace_root, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
+
+      assert File.read!(trace_file) == """
+             TICKET_SYSTEM=linear
+             TICKET_ID=S-99
+             VCS_PROVIDER=github
+             VCS_REPO=openai/symphony
+             """
     after
       File.rm_rf(test_root)
     end
